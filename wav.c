@@ -123,6 +123,11 @@ unsigned int wav_sample_freq(wav_t wv){
 	return wv->format.nSamplesPerSec;
 }
 
+// Get number of channels in wav file
+unsigned int wav_channels(wav_t wv){
+	return wv->format.nChannels;
+}
+
 // Get number of samples in wav file
 unsigned int wav_sample_count(wav_t wv){
 	return wv->size / wv->format.nBlockAlign;

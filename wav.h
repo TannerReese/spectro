@@ -21,6 +21,8 @@ void free_wav(wav_t wv);
 
 // Return sampling frequency of wav file
 unsigned int wav_sample_freq(wav_t wv);
+// Get number of channels in wav file
+unsigned int wav_channels(wav_t wv);
 // Get number of samples in wav file
 unsigned int wav_sample_count(wav_t wv);
 // Get duration of wav file
