@@ -11,7 +11,7 @@
 
 #define AUDIO_FILE_LENGTH 64
 char audio_file[AUDIO_FILE_LENGTH] = "\0";  // Path to audio file to display
-unsigned int channel = 0;  // Channel of audio file to display
+int channel = 0;  // Channel of audio file to display
 double start_tm = 0, end_tm = -0.00001; // Start and End times
 
 unsigned int freqs_len = 0, freqs_cap = 0;
@@ -26,15 +26,13 @@ struct argp_option options[] = {
 	{"freq", 'f', "FREQ", 0, "Track another frequency precisely", 0},
 	
 	{"count", 'n', "NUMBER", 0, "Number of Frequencies to be track in Spectrum. Defaults to fit screen", 1},
-	{"lower", 'l', "FREQ", 0, "Lower Bound Frequency of Spectrum (default: 10Hz)", 1},
-	{"upper", 'u', "FREQ", 0, "Upper Bound Frequency of Spectrum (default: 10,000Hz)", 1},
+	{"range", 'a', "[LOW_FREQ][:HIGH_FREQ]", 0, "Lower and Upper Bounding Frequency of Spectrum (default: 10Hz : 10,000Hz)", 1},
 	
 	{"channel", 'c', "CHANNEL", 0, "Channel of audio file to display. Defaults to first", 1},
 	{"time", 't', "[START][:END]", 0, "Start and End Times to display spectrogram for. Defaults to entire file", 1},
 	
 	{"rate", 'r', "LINES_PER_SEC", 0, "Rate at which spectrogram lines should be printed (default: 4 lines / sec)", 3},
-	{"scale", 's', "SCALING", 0, "Factor by which to scale resulting amplitude values (default: 100)", 3},
-	{"precision", 'p', "CYCLES", 0, "Factor by which to scale resulting amplitude values (default: 5)", 3},
+	{"scale", 's', "SCALING", 0, "Factor by which to scale resulting amplitude values [1] (default: 100)", 3},
 	{0}
 };
 
@@ -69,26 +67,22 @@ error_t parse_opt(int key, char *arg, struct argp_state *state){
 		break;
 		
 		case 'n':
-			if(sscanf(arg, " %u", &frq_count) < 1){
+			if(sscanf(arg, " %i", &frq_count) < 1){
 				printf("Invalid input for number of frequencies, must be integer: \"%s\"\n", arg);
 				argp_usage(state);
 			}
 		break;
-		case 'l':
-			if(sscanf(arg, " %lf", &low_frq) < 1){
-				printf("Invalid input for lower frequency, must be float: \"%s\"\n", arg);
-				argp_usage(state);
-			}
-		break;
-		case 'u':
-			if(sscanf(arg, " %lf", &upp_frq) < 1){
-				printf("Invalid input for upper frequency, must be float: \"%s\"\n", arg);
+		case 'a':
+			fst = sscanf(arg, "%lf", &low_frq) < 1;
+			snd = sscanf(arg, ":%lf", &upp_frq) < 1 && sscanf(arg, "%*[^:]:%lf", &upp_frq) < 1;
+			if(fst && snd){
+				printf("Invalid frequency range: \"%s\"\n", arg);
 				argp_usage(state);
 			}
 		break;
 		
 		case 'c':
-			if(sscanf(arg, " %u", &channel) < 1){
+			if(sscanf(arg, " %i", &channel) < 1){
 				printf("Invalid channel, must be integer: \"%s\"\n", arg);
 				argp_usage(state);
 			}
@@ -124,7 +118,9 @@ error_t parse_opt(int key, char *arg, struct argp_state *state){
 
 struct argp argp = {options, parse_opt,
 	/* USAGE */ "[-f FREQ [-f FREQ ...]] FILE",
-	/* Documentation */ "Display Spectrogram for a given audio file\v"
+	/* Documentation */
+	"Display Spectrogram for a given audio file\v"
+	"[1]: Note that the scaling factor is also applied to the calculated amplitude of each of the additional frequencies (those indicated with -f)\n"
 };
 
 
@@ -150,27 +146,8 @@ void print_degree(double scl){
 	
 	printf("%s%c\033[0m", colors[val / CHAR_COUNT], chrs[val % CHAR_COUNT]);
 }
-/*
-#define freqtbl_forwav(w, f, e) gen_freqtbl((f), (w).format.nSamplesPerSec, (e))
 
-double freq_between(wav_t wv, freqtbl_t tbl, float start, float end, int chnl){
-	unsigned int s, first, last;
-	
-	if(start < 0) first = 0;
-	else first = (unsigned int)(wv.format.nSamplesPerSec * start);
-	
-	if(end < 0) last = wv.size / wv.format.nBlockAlign;
-	else last = (unsigned int)(wv.format.nSamplesPerSec * end);
-	
-	init_freqtbl(tbl, -1);
-	
-	double val;
-	for(s = first; s <= last; s++){
-		freqtbl_push(tbl, wav_fsampat(wv, s, chnl));
-	}
-	return freqtbl_get(tbl);
-}
-*/
+
 int main(int argc, char *argv[], char *envp[]){
 	argp_parse(&argp, argc, argv, 0, 0, NULL);
 	
@@ -207,6 +184,17 @@ int main(int argc, char *argv[], char *envp[]){
 		break;
 	}
 	
+	// Check that channel is valid
+	if(channel < 0){
+		printf("Channel must be positive: \"%i\"\n", channel);
+		free_wav(wv);
+		exit(1);
+	}else if(channel >= wav_channels(wv)){
+		printf("Selected channel index, \"%i\", must be less than number of channels, \"%u\"\n", channel, wav_channels(wv));
+		free_wav(wv);
+		exit(1);
+	}
+	
 	// Calculate what start_tm and end_tm are
 	double duration = wav_duration(wv);
 	if(start_tm < 0) start_tm += duration;
@@ -214,7 +202,7 @@ int main(int argc, char *argv[], char *envp[]){
 	
 	// Print file stats
 	unsigned int sampfrq = wav_sample_freq(wv);
-	printf("Sampling Frequency: %uHz\t\tDuration: %.4lfs\n", sampfrq, duration);
+	printf("Sampling Frequency: %uHz\t\tDuration: %.4lfs\t\tChannels: %u\n", sampfrq, duration, wav_channels(wv));
 	
 	int i, j;  // Indices for looping
 	
@@ -271,7 +259,7 @@ int main(int argc, char *argv[], char *envp[]){
 		// Print particular frequency table values
 		for(i = 0; i < freqs_len; i++){
 			ampl = freqtbl_get(freq_tbls[i]);
-			if(ampl >= 0) printf(" %6.4lf |", ampl);
+			if(ampl >= 0) printf(" %6.4lf |", scaling * ampl);
 		}
 		
 		// Print spectrum values
