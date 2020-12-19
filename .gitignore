@@ -1,6 +1,12 @@
 # Prerequisites
 *.d
 
+# Build files
+spectro
+
+# Audio Test files
+audio/*
+
 # Vim Temporary files
 *.sw*
 
