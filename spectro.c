@@ -1,6 +1,8 @@
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <alsa/asoundlib.h>
 #include <math.h>
 #include <argp.h>
 
@@ -22,6 +24,8 @@ int frq_count = -1;  // Number of Frequency Tables in Spectrum
 float lines_per_sec = 4;  // Number of lines of spectrogram to print every second
 float scaling = 100;  // Amount by which to scale resulting amplitudes
 
+int do_playback = 0;  // Whether application should playback audio as it's running
+
 struct argp_option options[] = {
 	{"freq", 'f', "FREQ", 0, "Track another frequency precisely", 0},
 	
@@ -33,6 +37,7 @@ struct argp_option options[] = {
 	
 	{"rate", 'r', "LINES_PER_SEC", 0, "Rate at which spectrogram lines should be printed (default: 4 lines / sec)", 3},
 	{"scale", 's', "SCALING", 0, "Factor by which to scale resulting amplitude values [1] (default: 100)", 3},
+	{"playback", 'p', 0, 0, "Plays audio as it is displaying the spectrogram", 3},
 	{0}
 };
 
@@ -102,12 +107,13 @@ error_t parse_opt(int key, char *arg, struct argp_state *state){
 				argp_usage(state);
 			}
 		break;
-		
 		case 's':
 			if(sscanf(arg, " %f", &scaling) < 1){
 				printf("Invalid scaling, must be float: \"%s\"\n", arg);
 				argp_usage(state);
 			}
+		break;
+		case 'p': do_playback = 1;
 		break;
 		
 		default:
@@ -122,6 +128,56 @@ struct argp argp = {options, parse_opt,
 	"Display Spectrogram for a given audio file\v"
 	"[1]: Note that the scaling factor is also applied to the calculated amplitude of each of the additional frequencies (those indicated with -f)\n"
 };
+
+
+
+
+
+snd_pcm_t *player;
+
+void init_player(unsigned int sample_freq){
+	int err;
+	if(err = snd_pcm_open(&player, "default" /* Default device */, SND_PCM_STREAM_PLAYBACK, 0)){
+		printf("Error when opening playback: %s\n", snd_strerror(err));
+		exit(1);
+	}
+
+	if(err = snd_pcm_set_params(
+		player,
+		SND_PCM_FORMAT_S16_LE,
+		SND_PCM_ACCESS_RW_INTERLEAVED,
+		1 /* Channels */, sample_freq /* Rate */,
+		1 /* Soft Resample */, 500000 /* 0.5s Latency */
+	)){
+		printf("Error while setting playback parameters: %s\n", snd_strerror(err));
+		exit(1);
+	}
+}
+
+void play_samples(unsigned int count, double *samples){
+	snd_pcm_sframes_t ret;
+	
+	// Convert to signed 16 bit data
+	int16_t buffer[count];
+	for(int i = 0; i < count; i++){
+		buffer[i] = (int16_t)(samples[i] * (1 << 15));
+	}
+	
+	if((ret = snd_pcm_writei(player, buffer, count)) < 0
+	&& (ret = snd_pcm_recover(player, ret, 0)) < 0
+	){
+		printf("Could not play samples: %s\n", snd_strerror(ret));
+		exit(1);
+	}
+}
+
+void close_player(){
+	int err;
+	if(err = snd_pcm_drain(player)){
+		printf("Draining samples failed: %s\n", snd_strerror(err));
+	}
+	snd_pcm_close(player);
+}
 
 
 
@@ -207,6 +263,10 @@ int main(int argc, char *argv[], char *envp[]){
 	int i, j;  // Indices for looping
 	
 	
+	// Initialize audio playback
+	if(do_playback) init_player(sampfrq);
+	
+	
 	// Initialize any extra frequency tables requested
 	freqtbl_t freq_tbls[freqs_len];
 	for(i = 0; i < freqs_len; i++){
@@ -239,21 +299,23 @@ int main(int argc, char *argv[], char *envp[]){
 	
 	unsigned int idx = wav_attime(wv, start_tm), step = (unsigned int)(sampfrq / lines_per_sec);
 	unsigned int max_idx = wav_attime(wv, end_tm);
-	double samp, ampl;  // Store sample of wav data and calculated amplitudes
+	
+	double samps[step];  // Allocate space for sample buffer
+	double ampl;  // Store calculated amplitudes
 	do{
 		printf("\n| %7.3f |", wav_atindex(wv, idx));
 		
-		// Push samples
+		// Get samples
 		for(j = 0; j < step && idx + j < max_idx; j++){
-			// Get sample value
-			samp = wav_fsampat(wv, idx + j, channel);
-			
-			// Push samples to particular frequencies
-			for(i = 0; i < freqs_len; i++) freqtbl_push(freq_tbls[i], samp);
-			
-			// Push samples to spectrum
-			spec_push(spec, samp);
+			samps[j] = wav_fsampat(wv, idx + j, channel);
 		}
+		
+		// Push samples to particular frequencies
+		for(i = 0; i < freqs_len; i++) freqtbl_pushall(freq_tbls[i], step, samps);
+		// Push samples to spectrum
+		spec_pushall(spec, step, samps);
+		
+		// Move index forward
 		idx += step;
 		
 		// Print particular frequency table values
@@ -265,6 +327,10 @@ int main(int argc, char *argv[], char *envp[]){
 		// Print spectrum values
 		for(i = 0; i < frq_count; i++) print_degree(scaling * spec_get(spec, i));
 		putchar('|');
+		
+		
+		// Play sound
+		if(do_playback) play_samples(step, samps);
 	}while(idx < max_idx);
 	
 	// Print footer
@@ -272,6 +338,9 @@ int main(int argc, char *argv[], char *envp[]){
 	for(i = 0; i < freqs_len; i++) printf("--------+");
 	for(i = 0; i < frq_count; i++) putchar('-');
 	printf("+\n");
+	
+	// Close Player
+	if(do_playback) close_player();
 	
 	return 0;
 }

@@ -2,7 +2,7 @@ CC=gcc
 FLAGS=
 
 spectro: spectro.o wav.o fourier.o
-	$(CC) $(FLAGS) -o spectro spectro.o wav.o fourier.o -lm
+	$(CC) $(FLAGS) -o spectro spectro.o wav.o fourier.o -lm -lasound
 
 spectro.o: spectro.c wav.h fourier.h
 	$(CC) $(FLAGS) -c -o spectro.o spectro.c
