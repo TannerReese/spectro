@@ -23,6 +23,8 @@ void clear_freqtbl(freqtbl_t tbl);
 double freqtbl_get(freqtbl_t tbl);
 // Moves window forward by one sample
 void freqtbl_push(freqtbl_t tbl, double sample);
+// Moves window forward by multiple samples
+void freqtbl_pushall(freqtbl_t tbl, unsigned int count, double *samples);
 
 // Get the number of samples per block
 unsigned int freqtbl_samps_perblk(freqtbl_t tbl);
@@ -47,9 +49,11 @@ unsigned int spec_freqcount(spectrum_t spec);
 // Get frequency for `i`th frequency table of spectrum
 double spec_freq(spectrum_t spec, unsigned int i);
 
-// Push sample to each frequency table of spectrum
-void spec_push(spectrum_t spec, double sample);
 // Returns amplitudes for `i`th frequency table in spectrum
 double spec_get(spectrum_t spec, unsigned int i);
+// Push sample to each frequency table of spectrum
+void spec_push(spectrum_t spec, double sample);
+// Push array of samples to each frequency table of spectrum
+void spec_pushall(spectrum_t spec, unsigned int count, double *samples);
 
 #endif

@@ -203,6 +203,121 @@ void freqtbl_push(freqtbl_t tbl, double sample){
 	tbl->blkidx %= tbl->samples;
 }
 
+// Moves window forward by multiple samples
+void freqtbl_pushall(freqtbl_t tbl, unsigned int count, double *samples){
+	double s, c;
+	
+	// If Window is unbounded
+	if(tbl->winwidth <= 0){
+		// Do Nothing
+		
+	// If samples are greater than winwidth clear window
+	}else if(count >= tbl->winwidth){
+		// Empty out window
+		tbl->sine_sum = 0;
+		tbl->sine_norm = 0;
+		tbl->cosine_sum = 0;
+		tbl->cosine_norm = 0;
+		
+		tbl->winidx = 0;
+		tbl->samps_in_win = tbl->winwidth;
+		
+		// Ignore excess samples
+		samples += count - tbl->winwidth;
+		tbl->blkidx += count - tbl->winwidth;
+		tbl->blkidx %= tbl->samples;
+		count = tbl->winwidth;
+		
+	// If extra samples won't fill window
+	}else if(count + tbl->samps_in_win <= tbl->winwidth){
+		tbl->samps_in_win += count;
+		
+	// If more than half of window will be replaced
+	}else if(count >= tbl->winwidth / 2){
+		// Empty out window
+		tbl->sine_sum = 0;
+		tbl->sine_norm = 0;
+		tbl->cosine_sum = 0;
+		tbl->cosine_norm = 0;
+		
+		// Refill window
+		tbl->samps_in_win = tbl->winwidth - count;  // Use samps_in_win to count backwards
+		while(tbl->samps_in_win > 0){	
+			tbl->blkidx--;
+			if(tbl->blkidx < 0) tbl->blkidx += tbl->samples;
+			
+			tbl->winidx--;
+			if(tbl->winidx < 0) tbl->winidx += tbl->winwidth;
+			
+			tbl->samps_in_win--;
+			
+			// Add values into sums
+			s = tbl->sine[tbl->blkidx];
+			tbl->sine_sum += s * tbl->window[tbl->winidx];
+			tbl->sine_norm += s * s;
+			c = tbl->cosine[tbl->blkidx];
+			tbl->cosine_sum += c * tbl->window[tbl->winidx];
+			tbl->cosine_norm += c * c;
+		}
+		
+		// Move indices back to correct position
+		tbl->blkidx = (tbl->blkidx + tbl->winwidth - count) % tbl->samples;
+		tbl->winidx = (tbl->winidx - count) % tbl->winwidth ;
+		tbl->samps_in_win = tbl->winwidth;
+		
+	// If less than half of window will be replaced
+	}else{
+		// Remove old samples
+		// Move to oldest sample in window
+		tbl->blkidx = (tbl->blkidx - tbl->samps_in_win) % tbl->samples;
+		if(tbl->blkidx < 0) tbl->blkidx += tbl->samples;
+		tbl->winidx = (tbl->winidx - tbl->samps_in_win) % tbl->winwidth;
+		if(tbl->winidx < 0) tbl->winidx += tbl->winwidth;
+		
+		tbl->samps_in_win = tbl->samps_in_win + count - tbl->winwidth;  // Use samps_in_win to track how many removals left
+		while(tbl->samps_in_win > 0){
+			// Remove values from sums
+			s = tbl->sine[tbl->blkidx];
+			tbl->sine_sum -= s * tbl->window[tbl->winidx];
+			tbl->sine_norm -= s * s;
+			c = tbl->cosine[tbl->blkidx];
+			tbl->cosine_sum -= c * tbl->window[tbl->winidx];
+			tbl->cosine_norm -= c * c;
+			
+			// Move to next sample in window
+			tbl->blkidx = (tbl->blkidx + 1) % tbl->samples;
+			tbl->winidx = (tbl->winidx + 1) % tbl->winwidth;
+			tbl->samps_in_win--;
+		}
+		
+		// Move indices back to correct location
+		tbl->blkidx = (tbl->blkidx + tbl->winwidth - count) % tbl->samples;
+		tbl->winidx = (tbl->winidx + tbl->winwidth - count) % tbl->winwidth;
+		tbl->samps_in_win = tbl->winwidth;
+	}
+	
+	// Add new samples
+	for(; count > 0; count--, samples++){
+		// Include new sample in the running sums
+		s = tbl->sine[tbl->blkidx];
+		tbl->sine_sum += s * (*samples);
+		tbl->sine_norm += s * s;
+		c = tbl->cosine[tbl->blkidx];
+		tbl->cosine_sum += c * (*samples);
+		tbl->cosine_norm += c * c;
+		
+		// Add sample to window
+		if(tbl->winwidth > 0){
+			tbl->window[tbl->winidx] = *samples;
+			tbl->winidx++;
+			tbl->winidx %= tbl->winwidth;
+		}
+		
+		tbl->blkidx++;
+		tbl->blkidx %= tbl->samples;
+	}
+}
+
 
 
 double freqtbl_freq(freqtbl_t tbl){
@@ -283,6 +398,11 @@ double spec_freq(spectrum_t spec, unsigned int i){
 
 
 
+// Returns amplitudes for `i`th frequency table in spectrum
+double spec_get(spectrum_t spec, unsigned int i){
+	return freqtbl_get(spec->begin + i);
+}
+
 // Push sample to each frequency table of spectrum
 void spec_push(spectrum_t spec, double sample){
 	for(freqtbl_t tbl = spec->begin; tbl <= spec->end; tbl++){
@@ -290,8 +410,9 @@ void spec_push(spectrum_t spec, double sample){
 	}
 }
 
-// Returns amplitudes for `i`th frequency table in spectrum
-double spec_get(spectrum_t spec, unsigned int i){
-	return freqtbl_get(spec->begin + i);
+// Push array of samples to each frequency table of spectrum
+void spec_pushall(spectrum_t spec, unsigned int count, double *samples){
+	for(freqtbl_t tbl = spec->begin; tbl <= spec->end; tbl++){
+		freqtbl_pushall(tbl, count, samples);
+	}
 }
-
