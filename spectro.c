@@ -25,15 +25,17 @@ float lines_per_sec = 4;  // Number of lines of spectrogram to print every secon
 float scaling = 100;  // Amount by which to scale resulting amplitudes
 
 int do_playback = 0;  // Whether application should playback audio as it's running
+int is_grey = 0;  // Whether the output is uncolored
 
 struct argp_option options[] = {
 	{"freq", 'f', "FREQ", 0, "Track another frequency precisely", 0},
 	
 	{"count", 'n', "NUMBER", 0, "Number of Frequencies to be track in Spectrum. Defaults to fit screen", 1},
 	{"range", 'a', "[LOW_FREQ][:HIGH_FREQ]", 0, "Lower and Upper Bounding Frequency of Spectrum (default: 10Hz : 10,000Hz)", 1},
+	{"grey", 'g', 0, 0, "Output spectrogram should be displayed without color (Used for terminals that don't support colored ASCII)", 1},
 	
 	{"channel", 'c', "CHANNEL", 0, "Channel of audio file to display. Defaults to first", 1},
-	{"time", 't', "[START][:END]", 0, "Start and End Times to display spectrogram for. Defaults to entire file", 1},
+	{"time", 't', "[START][:END]", 0, "Start and End Times in seconds to display spectrogram for. Defaults to entire file", 1},
 	
 	{"rate", 'r', "LINES_PER_SEC", 0, "Rate at which spectrogram lines should be printed (default: 4 lines / sec)", 3},
 	{"scale", 's', "SCALING", 0, "Factor by which to scale resulting amplitude values [1] (default: 100)", 3},
@@ -84,6 +86,8 @@ error_t parse_opt(int key, char *arg, struct argp_state *state){
 				printf("Invalid frequency range: \"%s\"\n", arg);
 				argp_usage(state);
 			}
+		break;
+		case 'g': is_grey = 1;
 		break;
 		
 		case 'c':
@@ -196,11 +200,20 @@ void print_degree(double scl){
 		"\033[37;103m"   // White on Yellow
 	};
 	
-	int val = (int)(scl * CHAR_COUNT * COLOR_COUNT);
-	if(val < 0) val = 0;
-	if(val >= CHAR_COUNT * COLOR_COUNT) val = CHAR_COUNT * COLOR_COUNT - 1;
-	
-	printf("%s%c\033[0m", colors[val / CHAR_COUNT], chrs[val % CHAR_COUNT]);
+	int val;
+	if(is_grey){
+		val = (int)(scl * CHAR_COUNT);
+		if(val < 0) val = 0;
+		if(val >= CHAR_COUNT) val = CHAR_COUNT - 1;
+		
+		printf("%c", chrs[val]);
+	}else{
+		val = (int)(scl * CHAR_COUNT * COLOR_COUNT);
+		if(val < 0) val = 0;
+		if(val >= CHAR_COUNT * COLOR_COUNT) val = CHAR_COUNT * COLOR_COUNT - 1;
+		
+		printf("%s%c\033[0m", colors[val / CHAR_COUNT], chrs[val % CHAR_COUNT]);
+	}
 }
 
 
